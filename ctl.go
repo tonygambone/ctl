@@ -1,7 +1,8 @@
 package main
 
 import (
-	"io"
+	"encoding/json"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -11,6 +12,15 @@ import (
 // we need to set the Spotify application credentials in another file
 // this is to prevent it getting checked in to source control
 // check SpotifyCredentials.go.dist for details
+
+var session struct {
+	SpotifyClientId string
+	SpotifyClientSecret string
+	AccessToken  string `json:"access_token"`
+	// TODO: handle refreshing
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+}
 
 func createTemplate(base *template.Template, content string) *template.Template {
 	return template.Must(template.Must(base.Clone()).Parse(content))
@@ -24,6 +34,7 @@ func main() {
 			}
 		}, "/media/e/Music/The Black Keys", "/media/e/Music/Radiohead", "/media/e/Music/Metric")
 	*/
+	spotifyCredentialsInit()
 
 	baseTemplate := template.Must(template.New("base").Parse(`
 		<h1>Compact Track Loader</h1>
@@ -41,7 +52,7 @@ func main() {
 		})
 	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := url.Values{
-			"client_id": {_spotifyClientId},
+			"client_id": {session.SpotifyClientId},
 			"response_type": {"code"},
 			"redirect_uri": {"http://" + r.Host + "/spotifyCallback"},
 			"scope": {"user-library-modify"},
@@ -50,18 +61,21 @@ func main() {
 		http.Redirect(w, r, "https://accounts.spotify.com/authorize?" + q.Encode(), 302)
 		})
 	http.HandleFunc("/spotifyCallback", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: check for "error" parameter and also handle PostForm error
+		// TODO: check for "error" parameter and also handle other errors
 
 		response, _ := http.PostForm("https://accounts.spotify.com/api/token",
 			url.Values{
 				"grant_type": {"authorization_code"},
 				"code": {r.URL.Query().Get("code")},
 				"redirect_uri": {"http://" + r.Host + "/spotifyCallback"},
-				"client_id": {_spotifyClientId},
-				"client_secret": {_spotifyClientSecret},
+				"client_id": {session.SpotifyClientId},
+				"client_secret": {session.SpotifyClientSecret},
 				})
 		defer response.Body.Close()
-		io.Copy(w, response.Body) // TODO: parse JSON response
+
+		body, _ := ioutil.ReadAll(response.Body)
+
+		_ = json.Unmarshal(body, &session)
 		})
 	log.Println("Starting up...")
 	log.Fatalln(http.ListenAndServe(":64055", nil)) // TODO: localhost
