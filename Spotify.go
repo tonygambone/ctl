@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -29,6 +30,10 @@ type spotifyTokenData struct {
 	AccessToken  string `json:"access_token"`
 	ExpiresIn    int    `json:"expires_in"` // seconds
 	RefreshToken string `json:"refresh_token"`
+}
+
+type spotifyUserData struct {
+	Id string `json:"id"`
 }
 
 // copied from net/http/server.go
@@ -68,7 +73,8 @@ func (s *Spotify) Authorize() (err error) {
 			$(function() {
 				$.ajax('/me').done(function(me) {
 					window.me = me;
-					$('#auth').html('<p>Logged in as <a href="' + me.external_urls.spotify + '" target="_blank">' + me.id + '</a></p>');
+					$('#auth').html('<p>Logged in as ' + me.id + '.</p>' +
+						'<p>You can go back to the console window now.</p>');
 				}).fail(function(xhr) {
 					$('#auth').html('<a href="/authorize">Log in with Spotify</a>');
 				});
@@ -85,26 +91,19 @@ func (s *Spotify) Authorize() (err error) {
 			return
 		}
 
-		//uri := "https://api.spotify.com/v1/" + r.URL.Path[len("/api/"):] + "?" + r.URL.RawQuery
-		uri := "https://api.spotify.com/v1/me"
-		log.Printf("API %s %s", r.Method, uri)
-		client := &http.Client{}
-		req, err := http.NewRequest(r.Method, uri, r.Body)
+		user := spotifyUserData{}
+
+		err := s.doApiRequest("GET", "/me", nil, &user)
 		if err != nil {
 			panic(err)
 		}
-		req.Header.Set("Authorization", "Bearer "+s.tokenData.AccessToken)
-		response, err := client.Do(req)
-		if err != nil {
-			panic(err)
-		}
-		defer response.Body.Close()
+
 		// close listener only if successful
 		if s.tokenData.AccessToken != "" {
 			defer s.listener.Close()
 		}
 		w.Header().Set("Content-Type", "application/json")
-		io.Copy(w, response.Body)
+		w.Write([]byte("{\"id\":\"" + user.Id + "\"}"))
 	})
 
 	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +126,13 @@ func (s *Spotify) Authorize() (err error) {
 	})
 
 	listen := ":64055" // TODO: localhost
+	// TODO: choose a decent interface address
+	addrs, _ := net.InterfaceAddrs()
+	for _, el := range addrs {
+		log.Printf("%s", el)
+	}
 	log.Printf("Starting up HTTP server on %s ...", listen)
+	log.Printf("Please go to <ip or hostname>" + listen + " in your browser to log in to Spotify.")
 	//log.Fatalln(http.ListenAndServe(listen, nil))
 	s.listener, err = net.Listen("tcp", listen)
 	if err != nil {
@@ -163,7 +168,7 @@ func (s *Spotify) requestToken(code string, host string) (err error) {
 	}
 
 	// start refresh timer
-	d := (s.tokenData.ExpiresIn - 30) * time.Second
+	d := time.Duration(s.tokenData.ExpiresIn-30) * time.Second
 	if s.refreshTimer == nil {
 		s.refreshTimer = time.NewTimer(d)
 	} else {
@@ -174,5 +179,51 @@ func (s *Spotify) requestToken(code string, host string) (err error) {
 		log.Println("Refreshing auth token")
 		s.requestToken(s.tokenData.RefreshToken, "localhost")
 	}()
+	return
+}
+
+func (s *Spotify) doApiRequest(method string, pathAndQuery string, body io.Reader, responseData interface{}) (err error) {
+	responseReader, err := s.doApiRequestReader(method, pathAndQuery, body)
+	defer responseReader.Close()
+	if err != nil {
+		return
+	}
+
+	if responseData != nil {
+		responseBody, err := ioutil.ReadAll(responseReader)
+		if err != nil {
+			return err
+		}
+
+		err = json.Unmarshal(responseBody, &responseData)
+		if err != nil {
+			return err
+		}
+	}
+
+	return
+}
+
+func (s *Spotify) doApiRequestReader(method string, pathAndQuery string, body io.Reader) (responseReader io.ReadCloser, err error) {
+	// TODO: check for "error" parameter and also handle other errors
+
+	if len(s.tokenData.AccessToken) == 0 {
+		return nil, errors.New("Missing Spotify access token")
+	}
+
+	uri := "https://api.spotify.com/v1" + pathAndQuery
+	log.Printf("API %s %s", method, uri)
+	client := &http.Client{}
+	req, err := http.NewRequest(method, uri, body)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+s.tokenData.AccessToken)
+	response, err := client.Do(req)
+	if err != nil {
+		return
+	}
+
+	responseReader = response.Body
 	return
 }
