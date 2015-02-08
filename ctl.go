@@ -11,8 +11,11 @@ import (
 // TODO: maybe a set of port numbers to choose from
 // TODO: update when spotify album API is out
 
+// track load loads a single track that matches title, album, and artist
+// album load loads an entire album that matches album and artist for any track found
+
 type Options struct {
-	match string // title, album TODO: artist?
+	load string // track, album TODO: artist?
 	// TODO: option to specify token info to bypass the auth?
 	paths []string // media paths to scan
 }
@@ -20,7 +23,7 @@ type Options struct {
 var options Options
 
 func init() {
-	flag.StringVar(&options.match, "match", "title", "how to match tracks to add on Spotify (title, album)")
+	flag.StringVar(&options.load, "load", "title", "how to load tracks to Spotify (track, album)")
 }
 
 func main() {
@@ -43,9 +46,9 @@ func populateOptions() (ret bool) {
 	options.paths = flag.Args()
 	ret = true
 
-	res, _ := regexp.MatchString("^(title|album)$", options.match)
+	res, _ := regexp.MatchString("^(track|album)$", options.load)
 	if !res {
-		fmt.Println("Invalid option for 'match' (must be 'title' or 'album')")
+		fmt.Println("Invalid option for 'load' (must be 'track' or 'album')")
 		ret = false
 	}
 
