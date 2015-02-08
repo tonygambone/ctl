@@ -18,6 +18,6 @@ func main() {
 	*/
 	var spotify Spotify
 	// this will return an error - "use of closed network connection", this is normal
-	_ := spotify.Authorize()
+	_ = spotify.Authorize()
 
 }

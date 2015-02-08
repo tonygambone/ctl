@@ -18,6 +18,7 @@ import (
 
 type Spotify struct {
 	listener net.Listener
+	refreshTimer *time.Timer
 
 	clientId string
 	clientSecret string
@@ -26,8 +27,7 @@ type Spotify struct {
 
 type spotifyTokenData struct {
 	AccessToken  string `json:"access_token"`
-	// TODO: handle refreshing
-	ExpiresIn    int    `json:"expires_in"`
+	ExpiresIn    int    `json:"expires_in"` // seconds
 	RefreshToken string `json:"refresh_token"`
 }
 
@@ -113,35 +113,19 @@ func (s *Spotify) Authorize() (err error) {
 			"response_type": {"code"},
 			"redirect_uri": {"http://" + r.Host + "/spotifyCallback"},
 			"scope": {"user-library-modify"},
-			"show_dialog": {"true"}, // TODO: can remove this
+			//"show_dialog": {"true"}, // uncomment to force dialog even when already authorized
 		}
 		http.Redirect(w, r, "https://accounts.spotify.com/authorize?" + q.Encode(), http.StatusFound)
 		})
 
 	http.HandleFunc("/spotifyCallback", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: check for "error" parameter and also handle other errors
-
-		response, _ := http.PostForm("https://accounts.spotify.com/api/token",
-			url.Values{
-				"grant_type": {"authorization_code"},
-				"code": {r.URL.Query().Get("code")},
-				"redirect_uri": {"http://" + r.Host + "/spotifyCallback"},
-				"client_id": {s.clientId},
-				"client_secret": {s.clientSecret},
-				})
-		defer response.Body.Close()
-
-		body, err := ioutil.ReadAll(response.Body)
-		if (err != nil) {
-			panic(err)
-		}
-
-		err = json.Unmarshal(body, &s.tokenData)
-		if (err != nil) {
+		err = s.requestToken(r.URL.Query().Get("code"), r.Host)
+		if err != nil {
 			panic(err)
 		}
 		http.Redirect(w, r, "/", http.StatusFound)
 		})
+
 	listen := ":64055" // TODO: localhost
 	log.Printf("Starting up HTTP server on %s ...", listen)
 	//log.Fatalln(http.ListenAndServe(listen, nil))
@@ -150,5 +134,45 @@ func (s *Spotify) Authorize() (err error) {
 		return
 	}
 	err = http.Serve(tcpKeepAliveListener{s.listener.(*net.TCPListener)}, nil)
+	return
+}
+
+func (s *Spotify) requestToken(code string, host string) (err error) {
+	// TODO: check for "error" parameter and also handle other errors
+	response, err := http.PostForm("https://accounts.spotify.com/api/token",
+	url.Values{
+		"grant_type": {"authorization_code"},
+		"code": {code},
+		"redirect_uri": {"http://" + host + "/spotifyCallback"},
+		"client_id": {s.clientId},
+		"client_secret": {s.clientSecret},
+		})
+	defer response.Body.Close()
+	if err != nil {
+		return
+	}
+
+	body, err := ioutil.ReadAll(response.Body)
+	if (err != nil) {
+		return
+	}
+
+	err = json.Unmarshal(body, &s.tokenData)
+	if (err != nil) {
+		return
+	}
+
+	// start refresh timer
+	d := (s.tokenData.ExpiresIn - 30) * time.Second
+	if s.refreshTimer == nil {
+		s.refreshTimer = time.NewTimer(d)
+	} else {
+		s.refreshTimer.Reset(d)
+	}
+	go func() {
+		<- s.refreshTimer.C
+		log.Println("Refreshing auth token")
+		s.requestToken(s.tokenData.RefreshToken, "localhost")
+	}()
 	return
 }
