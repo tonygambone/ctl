@@ -17,12 +17,12 @@ import (
 // check SpotifyCredentials.go.dist for details
 
 type Spotify struct {
-	listener net.Listener
+	listener     net.Listener
 	refreshTimer *time.Timer
 
-	clientId string
+	clientId     string
 	clientSecret string
-	tokenData spotifyTokenData
+	tokenData    spotifyTokenData
 }
 
 type spotifyTokenData struct {
@@ -74,13 +74,13 @@ func (s *Spotify) Authorize() (err error) {
 				});
 			});
 			</script>`)
-		})
+	})
 
 	// spotify api proxy
 	http.HandleFunc("/me", func(w http.ResponseWriter, r *http.Request) {
 		// TODO: check for "error" parameter and also handle other errors
 
-		if (len(s.tokenData.AccessToken) == 0) {
+		if len(s.tokenData.AccessToken) == 0 {
 			http.Error(w, `{"error":"No Spotify access token present"}`, http.StatusForbidden)
 			return
 		}
@@ -90,33 +90,33 @@ func (s *Spotify) Authorize() (err error) {
 		log.Printf("API %s %s", r.Method, uri)
 		client := &http.Client{}
 		req, err := http.NewRequest(r.Method, uri, r.Body)
-		if (err != nil) {
+		if err != nil {
 			panic(err)
 		}
-		req.Header.Set("Authorization", "Bearer " + s.tokenData.AccessToken)
+		req.Header.Set("Authorization", "Bearer "+s.tokenData.AccessToken)
 		response, err := client.Do(req)
-		if (err != nil) {
+		if err != nil {
 			panic(err)
 		}
 		defer response.Body.Close()
 		// close listener only if successful
-		if (s.tokenData.AccessToken != "") {
+		if s.tokenData.AccessToken != "" {
 			defer s.listener.Close()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		io.Copy(w, response.Body)
-		})
+	})
 
 	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := url.Values{
-			"client_id": {s.clientId},
+			"client_id":     {s.clientId},
 			"response_type": {"code"},
-			"redirect_uri": {"http://" + r.Host + "/spotifyCallback"},
-			"scope": {"user-library-modify"},
+			"redirect_uri":  {"http://" + r.Host + "/spotifyCallback"},
+			"scope":         {"user-library-modify"},
 			//"show_dialog": {"true"}, // uncomment to force dialog even when already authorized
 		}
-		http.Redirect(w, r, "https://accounts.spotify.com/authorize?" + q.Encode(), http.StatusFound)
-		})
+		http.Redirect(w, r, "https://accounts.spotify.com/authorize?"+q.Encode(), http.StatusFound)
+	})
 
 	http.HandleFunc("/spotifyCallback", func(w http.ResponseWriter, r *http.Request) {
 		err = s.requestToken(r.URL.Query().Get("code"), r.Host)
@@ -124,13 +124,13 @@ func (s *Spotify) Authorize() (err error) {
 			panic(err)
 		}
 		http.Redirect(w, r, "/", http.StatusFound)
-		})
+	})
 
 	listen := ":64055" // TODO: localhost
 	log.Printf("Starting up HTTP server on %s ...", listen)
 	//log.Fatalln(http.ListenAndServe(listen, nil))
 	s.listener, err = net.Listen("tcp", listen)
-	if (err != nil) {
+	if err != nil {
 		return
 	}
 	err = http.Serve(tcpKeepAliveListener{s.listener.(*net.TCPListener)}, nil)
@@ -140,12 +140,12 @@ func (s *Spotify) Authorize() (err error) {
 func (s *Spotify) requestToken(code string, host string) (err error) {
 	// TODO: check for "error" parameter and also handle other errors
 	response, err := http.PostForm("https://accounts.spotify.com/api/token",
-	url.Values{
-		"grant_type": {"authorization_code"},
-		"code": {code},
-		"redirect_uri": {"http://" + host + "/spotifyCallback"},
-		"client_id": {s.clientId},
-		"client_secret": {s.clientSecret},
+		url.Values{
+			"grant_type":    {"authorization_code"},
+			"code":          {code},
+			"redirect_uri":  {"http://" + host + "/spotifyCallback"},
+			"client_id":     {s.clientId},
+			"client_secret": {s.clientSecret},
 		})
 	defer response.Body.Close()
 	if err != nil {
@@ -153,12 +153,12 @@ func (s *Spotify) requestToken(code string, host string) (err error) {
 	}
 
 	body, err := ioutil.ReadAll(response.Body)
-	if (err != nil) {
+	if err != nil {
 		return
 	}
 
 	err = json.Unmarshal(body, &s.tokenData)
-	if (err != nil) {
+	if err != nil {
 		return
 	}
 
@@ -170,7 +170,7 @@ func (s *Spotify) requestToken(code string, host string) (err error) {
 		s.refreshTimer.Reset(d)
 	}
 	go func() {
-		<- s.refreshTimer.C
+		<-s.refreshTimer.C
 		log.Println("Refreshing auth token")
 		s.requestToken(s.tokenData.RefreshToken, "localhost")
 	}()

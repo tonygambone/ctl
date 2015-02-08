@@ -8,17 +8,17 @@ package main
 import "C"
 
 import (
-	"path/filepath"
-	"os"
 	"log"
-	"unsafe"
+	"os"
+	"path/filepath"
 	"sync"
+	"unsafe"
 )
 
 type TrackInfo struct {
 	artist string
-	title string
-	album string
+	title  string
+	album  string
 }
 
 type TrackChannel <-chan TrackInfo
@@ -40,7 +40,7 @@ func readTracks(dirs ...string) TrackChannel {
 	trackChannel := make(chan TrackInfo)
 	go func() {
 		defer close(trackChannel)
-		for _,dir := range dirs {
+		for _, dir := range dirs {
 			err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					log.Printf("ERROR \"%s\" %s", path, err.Error())
@@ -61,11 +61,11 @@ func readTracks(dirs ...string) TrackChannel {
 					defer C.taglib_file_free(track)
 
 					tag := C.taglib_file_tag(track)
-					trackChannel <- TrackInfo {
+					trackChannel <- TrackInfo{
 						artist: goString(C.taglib_tag_artist(tag)),
-						title: goString(C.taglib_tag_title(tag)),
-						album: goString(C.taglib_tag_album(tag)),
-					}		
+						title:  goString(C.taglib_tag_title(tag)),
+						album:  goString(C.taglib_tag_album(tag)),
+					}
 				}
 				return nil
 			})
