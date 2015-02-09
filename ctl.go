@@ -10,9 +10,13 @@ import (
 
 // TODO: maybe a set of port numbers to choose from
 // TODO: update when spotify album API is out
+// TODO: MusicBrainz / Echo Nest http://developer.echonest.com/docs/v4#project-rosetta-stone
+// TODO: generally handle errors
 
 // track load loads a single track that matches title, album, and artist
 // album load loads an entire album that matches album and artist for any track found
+
+// maximum 50 track IDs per put
 
 type Options struct {
 	load string // track, album TODO: artist?
@@ -23,7 +27,7 @@ type Options struct {
 var options Options
 
 func init() {
-	flag.StringVar(&options.load, "load", "title", "how to load tracks to Spotify (track, album)")
+	flag.StringVar(&options.load, "load", "track", "how to load tracks to Spotify (track, album)")
 }
 
 func main() {
@@ -37,6 +41,7 @@ func main() {
 	ReadMedia(func(trackChannel TrackChannel) {
 		for track := range trackChannel {
 			log.Printf("%s - %s - %s", track.artist, track.album, track.title)
+			spotify.search(track.artist, track.album, track.title)
 		}
 	}, options.paths...)
 }

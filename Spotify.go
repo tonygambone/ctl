@@ -26,14 +26,44 @@ type Spotify struct {
 	tokenData    spotifyTokenData
 }
 
+// API data structs
+
 type spotifyTokenData struct {
 	AccessToken  string `json:"access_token"`
 	ExpiresIn    int    `json:"expires_in"` // seconds
 	RefreshToken string `json:"refresh_token"`
 }
 
-type spotifyUserData struct {
+type spotifyErrorResponse struct {
+	Error spotifyError `json:"error"`
+}
+
+type spotifyError struct {
+	Status  int    `json:"status"`
+	Message string `json:"message"`
+}
+
+type spotifyId struct {
 	Id string `json:"id"`
+}
+
+type spotifyName struct {
+	*spotifyId
+	Name string `json:"name"`
+}
+
+type spotifySearchResult struct {
+	TrackResult spotifyTrackSearchResult `json:"tracks"`
+}
+
+type spotifyTrackSearchResult struct {
+	Tracks []spotifyTrack `json:"items"`
+}
+
+type spotifyTrack struct {
+	*spotifyName
+	Album   spotifyName   `json:"album"`
+	Artists []spotifyName `json:"artists"`
 }
 
 // copied from net/http/server.go
@@ -91,7 +121,7 @@ func (s *Spotify) Authorize() (err error) {
 			return
 		}
 
-		user := spotifyUserData{}
+		user := spotifyId{}
 
 		err := s.doApiRequest("GET", "/me", nil, &user)
 		if err != nil {
@@ -111,13 +141,18 @@ func (s *Spotify) Authorize() (err error) {
 			"client_id":     {s.clientId},
 			"response_type": {"code"},
 			"redirect_uri":  {"http://" + r.Host + "/spotifyCallback"},
-			"scope":         {"user-library-modify"},
+			// scopes needed:
+			// user-library-modify to add tracks/albums
+			// user-read-private is so we can use market=from_token which limits search results to
+			//   tracks available in the user's market
+			"scope": {"user-library-modify user-read-private"},
 			//"show_dialog": {"true"}, // uncomment to force dialog even when already authorized
 		}
 		http.Redirect(w, r, "https://accounts.spotify.com/authorize?"+q.Encode(), http.StatusFound)
 	})
 
 	http.HandleFunc("/spotifyCallback", func(w http.ResponseWriter, r *http.Request) {
+		// TODO: check for "error" URL parameter
 		err = s.requestToken(r.URL.Query().Get("code"), r.Host)
 		if err != nil {
 			panic(err)
@@ -143,7 +178,6 @@ func (s *Spotify) Authorize() (err error) {
 }
 
 func (s *Spotify) requestToken(code string, host string) (err error) {
-	// TODO: check for "error" parameter and also handle other errors
 	response, err := http.PostForm("https://accounts.spotify.com/api/token",
 		url.Values{
 			"grant_type":    {"authorization_code"},
@@ -168,17 +202,19 @@ func (s *Spotify) requestToken(code string, host string) (err error) {
 	}
 
 	// start refresh timer
-	d := time.Duration(s.tokenData.ExpiresIn-30) * time.Second
-	if s.refreshTimer == nil {
-		s.refreshTimer = time.NewTimer(d)
-	} else {
-		s.refreshTimer.Reset(d)
+	if s.tokenData.ExpiresIn > 0 {
+		d := time.Duration(s.tokenData.ExpiresIn-30) * time.Second
+		if s.refreshTimer == nil {
+			s.refreshTimer = time.NewTimer(d)
+		} else {
+			s.refreshTimer.Reset(d)
+		}
+		go func() {
+			<-s.refreshTimer.C
+			log.Println("Refreshing auth token")
+			s.requestToken(s.tokenData.RefreshToken, "localhost")
+		}()
 	}
-	go func() {
-		<-s.refreshTimer.C
-		log.Println("Refreshing auth token")
-		s.requestToken(s.tokenData.RefreshToken, "localhost")
-	}()
 	return
 }
 
@@ -195,6 +231,13 @@ func (s *Spotify) doApiRequest(method string, pathAndQuery string, body io.Reade
 			return err
 		}
 
+		// check for error
+		spErr := spotifyErrorResponse{}
+		err = json.Unmarshal(responseBody, &spErr)
+		if len(spErr.Error.Message) > 0 {
+			return errors.New(spErr.Error.Message)
+		}
+
 		err = json.Unmarshal(responseBody, &responseData)
 		if err != nil {
 			return err
@@ -205,8 +248,6 @@ func (s *Spotify) doApiRequest(method string, pathAndQuery string, body io.Reade
 }
 
 func (s *Spotify) doApiRequestReader(method string, pathAndQuery string, body io.Reader) (responseReader io.ReadCloser, err error) {
-	// TODO: check for "error" parameter and also handle other errors
-
 	if len(s.tokenData.AccessToken) == 0 {
 		return nil, errors.New("Missing Spotify access token")
 	}
@@ -226,4 +267,29 @@ func (s *Spotify) doApiRequestReader(method string, pathAndQuery string, body io
 
 	responseReader = response.Body
 	return
+}
+
+func (s *Spotify) search(artist string, album string, title string) {
+	result := spotifySearchResult{}
+	query := url.Values{
+		"q":      {"artist:" + artist + " album:" + album + " track:" + title},
+		"type":   {"track"},
+		"market": {"from_token"},
+	}
+	err := s.doApiRequest("GET", "/search?"+query.Encode(), nil, &result)
+	if err != nil {
+		panic(err)
+	}
+	s.printResult(result)
+}
+
+func (s *Spotify) printResult(result spotifySearchResult) {
+	log.Printf("%d tracks:", len(result.TrackResult.Tracks))
+	for _, t := range result.TrackResult.Tracks {
+		log.Printf(" tk %s %s", t.Id, t.Name)
+		log.Printf(" al %s %s", t.Album.Id, t.Album.Name)
+		for _, a := range t.Artists {
+			log.Printf(" ar %s %s", a.Id, a.Name)
+		}
+	}
 }
