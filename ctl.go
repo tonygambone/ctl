@@ -12,6 +12,8 @@ import (
 // TODO: update when spotify album API is out
 // TODO: MusicBrainz / Echo Nest http://developer.echonest.com/docs/v4#project-rosetta-stone
 // TODO: generally handle errors
+// TODO: keep track of progress
+// TODO: maybe host an auth server to give out tokens?
 
 // track load loads a single track that matches title, album, and artist
 // album load loads an entire album that matches album and artist for any track found

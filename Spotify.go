@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/texttheater/golang-levenshtein/levenshtein"
 	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -280,7 +282,29 @@ func (s *Spotify) search(artist string, album string, title string) {
 	if err != nil {
 		panic(err)
 	}
-	s.printResult(result)
+
+	if len(result.TrackResult.Tracks) > 0 {
+		s.printResult(result)
+		lowScore := math.MaxInt32
+		lowIndex := math.MaxInt32
+		for i, t := range result.TrackResult.Tracks {
+			artistName := ""
+			if len(t.Artists) > 0 {
+				artistName = t.Artists[0].Name
+			}
+			// score matches
+			score := levenshtein.DistanceForStrings([]rune(artist), []rune(artistName), levenshtein.DefaultOptions) +
+				levenshtein.DistanceForStrings([]rune(album), []rune(t.Album.Name), levenshtein.DefaultOptions) +
+				levenshtein.DistanceForStrings([]rune(title), []rune(t.Name), levenshtein.DefaultOptions)
+			if score < lowScore {
+				lowScore = score
+				lowIndex = i
+			}
+		}
+		log.Printf("Best result: %s %s", result.TrackResult.Tracks[lowIndex].Id, result.TrackResult.Tracks[lowIndex].Name)
+	} else {
+		log.Println("No match")
+	}
 }
 
 func (s *Spotify) printResult(result spotifySearchResult) {
