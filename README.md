@@ -11,16 +11,18 @@ Spotify's library for the track.
 Usage
 -----
 
-Scan some directories, and load each track found into Spotify (these are equivalent):
+Scan some directories or files, and load each track found into Spotify (these are equivalent):
 
 * `ctl /path/to/dir1 /path/to/dir2`
 * `ctl --load=track /path/to/dir1 /path/to/dir2`
 
-Scan some directories, and load all tracks from each album found into Spotify:
+Scan some directories or files, and load all tracks from each album found into Spotify:
 
 * `ctl --load=album /path/to/dir1 /path/to/dir2`
 
-This will help fill out albums with missing tracks. The album mode is not implemented yet.
+This will help fill out albums with missing tracks. It will also work if you just pass a single file:
+
+* `ctl --load=album /path/to/file.mp3`
 
 Authorization
 -------------
@@ -61,4 +63,3 @@ TODO
 * Support Spotify's /me/albums API if/when it comes out (seems like they are working on it)
 * Keep track of scanned tracks so we can continually add just the new tracks to Spotify
 * Fix awkward authorization setup
-* Implement album load mode

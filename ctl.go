@@ -19,7 +19,7 @@ import (
 // album load loads an entire album that matches album and artist for any track found
 
 type Options struct {
-	load  string   // track, TODO: album
+	load  string   // track, album
 	paths []string // media paths to scan
 }
 
@@ -40,6 +40,9 @@ func main() {
 	}
 	var spotify Spotify
 	spotify.tracksToAdd = make([]string, 0, 50) // maximum 50 track IDs per put
+	if options.load == LOAD_ALBUM {
+		spotify.albumsAdded = make(map[string]bool)
+	}
 	// this will return an error - "use of closed network connection", this is normal
 	_ = spotify.Authorize()
 
@@ -61,10 +64,6 @@ func populateOptions() (ret bool) {
 	res, _ := regexp.MatchString("^(track|album)$", options.load)
 	if !res {
 		fmt.Println("Invalid option for 'load' (must be 'track' or 'album')")
-		ret = false
-	}
-	if options.load == LOAD_ALBUM {
-		fmt.Println("Album load is not supported yet")
 		ret = false
 	}
 

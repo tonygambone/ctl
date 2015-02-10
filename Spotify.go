@@ -20,6 +20,8 @@ import (
 // this is to prevent it getting checked in to source control
 // check SpotifyCredentials.go.dist for details
 
+const SPOTIFY_BASE = "https://api.spotify.com/v1"
+
 type Spotify struct {
 	listener     net.Listener
 	refreshTimer *time.Timer
@@ -29,6 +31,7 @@ type Spotify struct {
 	tokenData    spotifyTokenData
 
 	tracksToAdd []string
+	albumsAdded map[string]bool
 }
 
 // API data structs
@@ -63,6 +66,7 @@ type spotifySearchResult struct {
 
 type spotifyTrackSearchResult struct {
 	Tracks []spotifyTrack `json:"items"`
+	Next   string         `json:"next"`
 }
 
 type spotifyTrack struct {
@@ -258,7 +262,7 @@ func (s *Spotify) doApiRequestReader(method string, pathAndQuery string, body io
 		return nil, errors.New("Missing Spotify access token")
 	}
 
-	uri := "https://api.spotify.com/v1" + pathAndQuery
+	uri := SPOTIFY_BASE + pathAndQuery
 	log.Printf("API %s %s", method, uri)
 	client := &http.Client{}
 	req, err := http.NewRequest(method, uri, body)
@@ -276,7 +280,6 @@ func (s *Spotify) doApiRequestReader(method string, pathAndQuery string, body io
 }
 
 func (s *Spotify) findAndAdd(artist string, album string, title string, loadMode string) (err error) {
-	// TODO: loadMode
 	result := spotifySearchResult{}
 	query := url.Values{
 		"q":      {"artist:" + artist + " album:" + album + " track:" + title},
@@ -301,10 +304,18 @@ func (s *Spotify) findAndAdd(artist string, album string, title string, loadMode
 				bestTrack = t
 			}
 		}
-		log.Printf("Adding %s - %s - %s", bestTrack.ArtistName(), bestTrack.Album.Name, bestTrack.Name)
-		s.tracksToAdd = append(s.tracksToAdd, bestTrack.Id)
-		if len(s.tracksToAdd) == 50 {
-			err = s.flushTracks()
+
+		if loadMode == LOAD_TRACK {
+			log.Printf("Adding %s - %s - %s", bestTrack.ArtistName(), bestTrack.Album.Name, bestTrack.Name)
+			s.tracksToAdd = append(s.tracksToAdd, bestTrack.Id)
+			if len(s.tracksToAdd) == 50 {
+				err = s.flushTracks()
+				if err != nil {
+					return
+				}
+			}
+		} else if loadMode == LOAD_ALBUM {
+			err = s.addAlbum(bestTrack.Album.Id, bestTrack.Album.Name)
 			if err != nil {
 				return
 			}
@@ -312,6 +323,52 @@ func (s *Spotify) findAndAdd(artist string, album string, title string, loadMode
 	} else {
 		log.Println("No match")
 	}
+	return
+}
+
+func (s *Spotify) addAlbum(id string, name string) (err error) {
+	if s.albumsAdded[id] {
+		return
+	}
+
+	log.Println("Adding album " + name)
+
+	result := spotifyTrackSearchResult{
+		Next: "/albums/" + id + "/tracks?offset=0&limit=50",
+	}
+
+	// page through results
+	for {
+		if result.Next == "" {
+			break
+		}
+
+		// get track IDs for album
+		url := result.Next
+		result.Next = ""
+		err = s.doApiRequest("GET", url, nil, &result)
+		if err != nil {
+			return
+		}
+
+		// queue tracks
+		for _, t := range result.Tracks {
+			log.Println("Adding track " + t.Name)
+			s.tracksToAdd = append(s.tracksToAdd, t.Id)
+			if len(s.tracksToAdd) == 50 {
+				err = s.flushTracks()
+				if err != nil {
+					return
+				}
+			}
+		}
+
+		result.Next = strings.TrimPrefix(result.Next, SPOTIFY_BASE)
+	}
+
+	// add album to list of added
+	s.albumsAdded[id] = true
+
 	return
 }
 
