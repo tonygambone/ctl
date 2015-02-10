@@ -13,12 +13,12 @@ Usage
 
 Scan some directories, and load each track found into Spotify (these are equivalent):
 
-`ctl /path/to/dir1 /path/to/dir2`
-`ctl --load=track /path/to/dir1 /path/to/dir2`
+* `ctl /path/to/dir1 /path/to/dir2`
+* `ctl --load=track /path/to/dir1 /path/to/dir2`
 
 Scan some directories, and load all tracks from each album found into Spotify:
 
-`ctl --load=album /path/to/dir1 /path/to/dir2`
+* `ctl --load=album /path/to/dir1 /path/to/dir2`
 
 This will help fill out albums with missing tracks. The album mode is not implemented yet.
 
@@ -39,7 +39,7 @@ machine, add:
 
 And if you are using CTL on a remote machine, add:
 
-* http://<ip or hostname>:64055/spotifyCallback
+* http://hostname:64055/spotifyCallback
 
 Rename the file `SpotifyCredentials.go.dist` to `SpotifyCredentials.go` and put the API client ID and secret in
 the spaces provided.
