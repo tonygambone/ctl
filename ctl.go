@@ -18,18 +18,20 @@ import (
 // track load loads a single track that matches title, album, and artist
 // album load loads an entire album that matches album and artist for any track found
 
-// maximum 50 track IDs per put
-
 type Options struct {
-	load string // track, album TODO: artist?
-	// TODO: option to specify token info to bypass the auth?
+	load  string   // track, TODO: album
 	paths []string // media paths to scan
 }
+
+const (
+	LOAD_TRACK = "track"
+	LOAD_ALBUM = "album"
+)
 
 var options Options
 
 func init() {
-	flag.StringVar(&options.load, "load", "track", "how to load tracks to Spotify (track, album)")
+	flag.StringVar(&options.load, "load", LOAD_TRACK, "how to load tracks to Spotify (track, album)")
 }
 
 func main() {
@@ -37,15 +39,18 @@ func main() {
 		return
 	}
 	var spotify Spotify
+	spotify.tracksToAdd = make([]string, 0, 50) // maximum 50 track IDs per put
 	// this will return an error - "use of closed network connection", this is normal
 	_ = spotify.Authorize()
 
 	ReadMedia(func(trackChannel TrackChannel) {
 		for track := range trackChannel {
 			log.Printf("%s - %s - %s", track.artist, track.album, track.title)
-			spotify.search(track.artist, track.album, track.title)
+			spotify.findAndAdd(track.artist, track.album, track.title, options.load)
 		}
 	}, options.paths...)
+
+	spotify.flushTracks()
 }
 
 func populateOptions() (ret bool) {
@@ -56,6 +61,10 @@ func populateOptions() (ret bool) {
 	res, _ := regexp.MatchString("^(track|album)$", options.load)
 	if !res {
 		fmt.Println("Invalid option for 'load' (must be 'track' or 'album')")
+		ret = false
+	}
+	if options.load == LOAD_ALBUM {
+		fmt.Println("Album load is not supported yet")
 		ret = false
 	}
 

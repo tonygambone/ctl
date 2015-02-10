@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,8 @@ type Spotify struct {
 	clientId     string
 	clientSecret string
 	tokenData    spotifyTokenData
+
+	tracksToAdd []string
 }
 
 // API data structs
@@ -66,6 +69,13 @@ type spotifyTrack struct {
 	*spotifyName
 	Album   spotifyName   `json:"album"`
 	Artists []spotifyName `json:"artists"`
+}
+
+func (tr spotifyTrack) ArtistName() string {
+	if len(tr.Artists) > 0 {
+		return tr.Artists[0].Name
+	}
+	return ""
 }
 
 // copied from net/http/server.go
@@ -163,14 +173,8 @@ func (s *Spotify) Authorize() (err error) {
 	})
 
 	listen := ":64055" // TODO: localhost
-	// TODO: choose a decent interface address
-	addrs, _ := net.InterfaceAddrs()
-	for _, el := range addrs {
-		log.Printf("%s", el)
-	}
 	log.Printf("Starting up HTTP server on %s ...", listen)
-	log.Printf("Please go to <ip or hostname>" + listen + " in your browser to log in to Spotify.")
-	//log.Fatalln(http.ListenAndServe(listen, nil))
+	log.Printf("Please go to http://localhost" + listen + " in your browser to log in to Spotify. I'll wait.")
 	s.listener, err = net.Listen("tcp", listen)
 	if err != nil {
 		return
@@ -271,49 +275,56 @@ func (s *Spotify) doApiRequestReader(method string, pathAndQuery string, body io
 	return
 }
 
-func (s *Spotify) search(artist string, album string, title string) {
+func (s *Spotify) findAndAdd(artist string, album string, title string, loadMode string) (err error) {
+	// TODO: loadMode
 	result := spotifySearchResult{}
 	query := url.Values{
 		"q":      {"artist:" + artist + " album:" + album + " track:" + title},
 		"type":   {"track"},
 		"market": {"from_token"},
 	}
-	err := s.doApiRequest("GET", "/search?"+query.Encode(), nil, &result)
+	err = s.doApiRequest("GET", "/search?"+query.Encode(), nil, &result)
 	if err != nil {
-		panic(err)
+		return
 	}
 
 	if len(result.TrackResult.Tracks) > 0 {
-		s.printResult(result)
 		lowScore := math.MaxInt32
-		lowIndex := math.MaxInt32
-		for i, t := range result.TrackResult.Tracks {
-			artistName := ""
-			if len(t.Artists) > 0 {
-				artistName = t.Artists[0].Name
-			}
+		bestTrack := spotifyTrack{}
+		for _, t := range result.TrackResult.Tracks {
 			// score matches
-			score := levenshtein.DistanceForStrings([]rune(artist), []rune(artistName), levenshtein.DefaultOptions) +
+			score := levenshtein.DistanceForStrings([]rune(artist), []rune(t.ArtistName()), levenshtein.DefaultOptions) +
 				levenshtein.DistanceForStrings([]rune(album), []rune(t.Album.Name), levenshtein.DefaultOptions) +
 				levenshtein.DistanceForStrings([]rune(title), []rune(t.Name), levenshtein.DefaultOptions)
 			if score < lowScore {
 				lowScore = score
-				lowIndex = i
+				bestTrack = t
 			}
 		}
-		log.Printf("Best result: %s %s", result.TrackResult.Tracks[lowIndex].Id, result.TrackResult.Tracks[lowIndex].Name)
+		log.Printf("Adding %s - %s - %s", bestTrack.ArtistName(), bestTrack.Album.Name, bestTrack.Name)
+		s.tracksToAdd = append(s.tracksToAdd, bestTrack.Id)
+		if len(s.tracksToAdd) == 50 {
+			err = s.flushTracks()
+			if err != nil {
+				return
+			}
+		}
 	} else {
 		log.Println("No match")
 	}
+	return
 }
 
-func (s *Spotify) printResult(result spotifySearchResult) {
-	log.Printf("%d tracks:", len(result.TrackResult.Tracks))
-	for _, t := range result.TrackResult.Tracks {
-		log.Printf(" tk %s %s", t.Id, t.Name)
-		log.Printf(" al %s %s", t.Album.Id, t.Album.Name)
-		for _, a := range t.Artists {
-			log.Printf(" ar %s %s", a.Id, a.Name)
+func (s *Spotify) flushTracks() (err error) {
+	if len(s.tracksToAdd) > 0 {
+		log.Printf("Sending %d tracks", len(s.tracksToAdd))
+		err = s.doApiRequest("PUT", "/me/tracks?ids="+strings.Join(s.tracksToAdd, ","), nil, nil)
+		if err != nil {
+			log.Println(err)
+			return
 		}
+		// reset slice length to 0
+		s.tracksToAdd = s.tracksToAdd[:0]
 	}
+	return
 }
